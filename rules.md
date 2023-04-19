@@ -4,102 +4,137 @@
   }
 </style>
 
-{% highlight yaml %}
-# prometheus.yml
+<!-- CAUTIONS -->
+<div style="padding: 20px 20px 10px 20px; border: solid grey 1px; border-radius: 10px;">
+  <h2 style="text-align:center;">⚠️ Caution ⚠️</h2>
 
-global:
-  scrape_interval:     15s
-  ...
+  <p style="text-align:center;">
+    Alert thresholds depend on nature of applications.
+    <br>
+    Some queries in this page may have arbitrary tolerance threshold.
+    <br><br>
+    Building an efficient and battle-tested monitoring platform takes time. 😉
+  </p>
+</div>
 
-rule_files:
-  - 'alerts/*.yml'
+<br>
+<br>
 
-scrape_configs:
-  ...
+<h1></h1>
 
-{% endhighlight %}
-
-{% highlight yaml %}
-# alerts/example-redis.yml
-
-groups:
-
-- name: ExampleRedisGroup
-  rules:
-  - alert: ExampleRedisDown
-    expr: redis_up{} == 0
-    for: 2m
-    labels:
-      severity: error
-    annotations:
-      summary: "Redis instance ($instance) down"
-      description: "Whatever"
-
-{% endhighlight %}
-
+<!-- RULES -->
 <ul>
-  {% for service in site.data.rules.services %}
-  {% assign serviceIndex = forloop.index %}
-    {% for exporter in service.exporters %}
-    <li>
-      <h2 id="{{ service.name | replace: " ", "-" | downcase }}">
-        {{ serviceIndex }}.
-        {{ service.name }}
-        {% if exporter.name %}
-        :
-        {% if exporter.doc_url %}
-        <a href="{{ exporter.doc_url }}">
-          {{ exporter.name }}
-        </a>
-        {% else %}
-        {{ exporter.name }}
-        {% endif %}
-        {% endif %}
-      </h2>
-
+  {% for group in site.data.rules.groups %}
+  {% assign groupIndex = forloop.index %}
+    {% for service in group.services %}
+    {% assign serviceIndex = forloop.index %}
+    {% assign nbrExporters = service.exporters | size %}
+      {% for exporter in service.exporters %}
+      {% assign exporterIndex = forloop.index %}
       {% assign nbrRules = exporter.rules | size %}
-      {% if nbrRules == 0 %}
+      <li>
+        {% assign serviceId = service.name | replace: " ", "-" | downcase %}
+        <h2 id="{{ serviceId }}">
+          <span id="{{ serviceId }}-{{ exporterIndex }}"></span>
+          <a class="anchor" href="#{{ serviceId }}-{{ exporterIndex }}">#</a>
+          {{ groupIndex }}.{{ serviceIndex }}.{% if nbrExporters > 1 %}{{ exporterIndex }}.{% endif %}
+          {{ service.name }}
+          {% if exporter.name %}:
+          {% if exporter.doc_url %}
+          <a href="{{ exporter.doc_url }}">
+            {{ exporter.name }}
+          </a>
+          {% else %}
+          {{ exporter.name }}
+          {% endif %}
+          {% endif %}
+
+          {% if nbrRules > 0 %}
+            <small style="font-size: 60%; vertical-align: middle; margin-left: 10px;">
+              ({{ nbrRules }} rules)
+            </small>
+            <span class="clipboard-multiple" data-clipboard-target-id="group-{{ groupIndex }}-service-{{ serviceIndex }}-exporter-{{ exporterIndex }}">[copy section]</span>
+          {% endif %}
+        </h2>
+
+        {% if nbrRules == 0 %}
 {% highlight javascript %}
-// @TODO
+// @TODO: Please contribute => https://github.com/samber/awesome-prometheus-alerts 👋
 {% endhighlight %}
-      {% endif %}
+        {% else %}
+{% highlight bash %}
+$ wget https://raw.githubusercontent.com/samber/awesome-prometheus-alerts/master/dist/rules/{{ service.name | replace: " ", "-" | downcase }}/{{ exporter.slug }}.yml
+{% endhighlight %}
+        {% endif %}
 
-      <ul>
-        {% for rule in exporter.rules %}
-        {% assign ruleIndex = forloop.index %}
-        <li>
-          <h4>
-            {{ serviceIndex }}.{{ ruleIndex }}.
-            {{ rule.name }}
-          </h4>
-          <details {% if true || (serviceIndex == 1 && ruleIndex == 1) %} open {% endif %}>
-            <summary>{{ rule.description }}</summary>
-            <p>
+        <ul>
+          {% for rule in exporter.rules %}
+          {% assign ruleIndex = forloop.index %}
+          {% assign comments = rule.comments | strip | newline_to_br | split: '<br />' %}
+          <li>
+            <h4 id="rule-{{ serviceId }}-{{ exporterIndex }}-{{ ruleIndex }}">
+              <span id="rule-{{ serviceId }}-{{ ruleIndex }}"></span><!-- @deprecated -->
+              <a class="anchor" href="#rule-{{ serviceId }}-{{ exporterIndex }}-{{ ruleIndex }}">#</a>
+              {{ groupIndex}}.{{ serviceIndex }}.{% if nbrExporters > 1 %}{{ exporterIndex }}.{% endif %}{{ ruleIndex }}.
+              {{ rule.name }}
+            </h4>
+            <summary>
+              {{ rule.description }}
+              <span class="clipboard-single" data-clipboard-target-id="group-{{ groupIndex }}-service-{{ serviceIndex }}-exporter-{{ exporterIndex }}-rule-{{ ruleIndex }}" onclick="event.preventDefault();">[copy]</span>
+            </summary>
+            <div id="group-{{ groupIndex }}-service-{{ serviceIndex }}-exporter-{{ exporterIndex }}-rule-{{ ruleIndex }}">
+              {% assign ruleName = rule.name | split: ' ' %}
+              {% capture ruleNameCamelcase %}{% for word in ruleName %}{{ word | capitalize }} {% endfor %}{% endcapture %}
 
-            {% assign ruleName = rule.name | split: ' ' %}
-            {% capture ruleNameCamelcase %}{% for word in ruleName %}{{ word | capitalize }} {% endfor %}{% endcapture %}
-
-{% highlight yaml %}
-- alert: {{ ruleNameCamelcase | remove: ' ' }}
-  expr: {{ rule.query }}
-  for: 5m
-  labels:
-    severity: {{ rule.severity }}
-  annotations:
-    summary: "{{ rule.name }} (instance {% raw %}{{ $labels.instance }}{% endraw %})"
-    description: "{{ rule.description }}\n  VALUE = {% raw %}{{ $value }}{% endraw %}\n  LABELS: {% raw %}{{ $labels }}{% endraw %}"
+  {% highlight yaml %}
+  {% for comment in comments %}# {{ comment | strip }}
+  {% endfor %}- alert: {{ ruleNameCamelcase | remove: ' ' }}
+    expr: {{ rule.query }}
+    for: {% if rule.for %}{{ rule.for }}{% else %}0m{% endif %}
+    labels:
+      severity: {{ rule.severity }}
+    annotations:
+      summary: {{ rule.name }} (instance {% raw %}{{ $labels.instance }}{% endraw %})
+      description: "{{ rule.description | replace: '"', '\"' }}\n  VALUE = {% raw %}{{ $value }}{% endraw %}\n  LABELS = {% raw %}{{ $labels }}{% endraw %}"
 
 {% endhighlight %}
 
-            </p>
-          </details>
-          <br/>
-        </li>
-        {% endfor %}
-      </ul>
+            </div>
+            <br/>
+          </li>
+          {% endfor %}
+        </ul>
 
-    <hr/>
-    </li>
-  {% endfor %}
+      <hr/>
+      </li>
+    {% endfor %}
+    {% endfor %}
   {% endfor %}
 </ul>
+
+
+
+<!-- NAVBAR -->
+<div id="rules-navbar" class="affix">
+  <h3>Menu</h3>
+  <ul>
+    {% for group in site.data.rules.groups %}
+      <li>
+        <h4>{{ group.name }}</h4>
+        <ul>
+          {% for service in group.services %}
+            <li>
+              <a href="#{{ service.name | replace: " ", "-" | downcase }}">
+                👉 {{ service.name }}
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <script>
+    $('#rules-navbar').affix({offset: {top: 750} }).css('display', 'block');
+  </script>
+</div>
